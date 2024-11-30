@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+   <s:Body>
+      <DS_DataResponse xmlns="http://tempuri.org/">
+         <DS_DataResult>
+            <xs:schema id="NewDataSet" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+               <xs:element name="NewDataSet" msdata:IsDataSet="true" msdata:UseCurrentLocale="true">
+                  <xs:complexType>
+                     <xs:choice minOccurs="0" maxOccurs="unbounded">
+                        <xs:element name="Records">
+                           <xs:complexType>
+                              <xs:sequence>
+                                 <xs:element name="District_ID" type="xs:int" minOccurs="0"/>
+                                 <xs:element name="Taluka_ID" type="xs:string" minOccurs="0"/>
+                                 <xs:element name="Village_ID" type="xs:int" minOccurs="0"/>
+                                 <xs:element name="Village_Name" type="xs:string" minOccurs="0"/>
+                                 <xs:element name="Exec_Date" type="xs:dateTime" minOccurs="0"/>
+                              </xs:sequence>
+                           </xs:complexType>
+                        </xs:element>
+                     </xs:choice>
+                  </xs:complexType>
+               </xs:element>
+            </xs:schema>
+            <diffgr:diffgram xmlns:diffgr="urn:schemas-microsoft-com:xml-diffgram-v1" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+               <NewDataSet xmlns="">
+                  <Records diffgr:id="Records1" msdata:rowOrder="0">
+                     <District_ID>4</District_ID>
+                     <Taluka_ID>0046</Taluka_ID>
+                     <Village_ID>1598</Village_ID>
+                     <Village_Name>Village_test1</Village_Name>
+                     <Exec_Date>2018-07-19T00:00:00+05:30</Exec_Date>
+                  </Records>
+                  </NewDataSet>
+            </diffgr:diffgram>
+         </DS_DataResult>
+      </DS_DataResponse>
+   </s:Body>
+</s:Envelope>

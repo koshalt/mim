@@ -59,6 +59,8 @@ public final class RchImportTestHelper {
         return readRchFile("rch-anm-asha-data-one-exec-date.xml");
     }
 
+
+
     private static String readRchFile(String fileName) throws IOException {
         try (InputStream in = RchImportTestHelper.class.getResourceAsStream("/rch/" + fileName)) {
             return IOUtils.toString(in);

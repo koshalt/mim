@@ -1,6 +1,5 @@
 package org.motechproject.nms.testing.it.kilkari;
 
-import junit.framework.Assert;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
@@ -13,13 +12,7 @@ import org.motechproject.alerts.domain.Alert;
 import org.motechproject.alerts.domain.AlertType;
 import org.motechproject.event.MotechEvent;
 import org.motechproject.nms.imi.repository.CallDetailRecordDataService;
-import org.motechproject.nms.kilkari.domain.CallRetry;
-import org.motechproject.nms.kilkari.domain.CallStage;
-import org.motechproject.nms.kilkari.domain.DeactivationReason;
-import org.motechproject.nms.kilkari.domain.Subscription;
-import org.motechproject.nms.kilkari.domain.SubscriptionOrigin;
-import org.motechproject.nms.kilkari.domain.SubscriptionPackType;
-import org.motechproject.nms.kilkari.domain.SubscriptionStatus;
+import org.motechproject.nms.kilkari.domain.*;
 import org.motechproject.nms.kilkari.dto.CallSummaryRecordDto;
 import org.motechproject.nms.kilkari.repository.CallRetryDataService;
 import org.motechproject.nms.kilkari.repository.SubscriberDataService;
@@ -1266,6 +1259,52 @@ public class CsrServiceBundleIT extends BasePaxIT {
 
 
     }
+    /* Verify NMS shall not retry OBD message for deactivated(reason : Child_death) subscription*/
 
+    @Test
+    public void verifyDeactivatedSubscription() {
+        DateTime now = DateTime.now();
+
+        // created susbscription and retry record, mark deactivated and send CSR with success
+        Subscription subscription = sh.mksub(SubscriptionOrigin.MCTS_IMPORT, now.minusDays(3),
+                SubscriptionPackType.CHILD);
+
+        String contentFileName = sh.getContentMessageFile(subscription, 0);
+        String weekId = sh.getWeekId(subscription, 0);
+        callRetryDataService.create(new CallRetry(
+                subscription.getSubscriptionId(),
+                subscription.getSubscriber().getCallingNumber(),
+                CallStage.RETRY_1,
+                contentFileName,
+                weekId,
+                rh.hindiLanguage().getCode(),
+                rh.delhiCircle().getName(),
+                SubscriptionOrigin.MCTS_IMPORT,
+                "20151119124330",
+                0
+        ));
+
+        CallSummaryRecordDto record = new CallSummaryRecordDto(
+                subscription,
+                StatusCode.OBD_FAILED_NOANSWER,
+                FinalCallStatus.FAILED,
+                contentFileName,
+                weekId,
+                rh.hindiLanguage(),
+                rh.delhiCircle(),
+                "20151119124331"
+        );
+
+        processCsr(record);
+
+        subscription = subscriptionDataService.findBySubscriptionId(subscription.getSubscriptionId());
+        assertEquals(1, callRetryDataService.count());
+        subscription.setStatus(SubscriptionStatus.DEACTIVATED);
+        subscriptionDataService.update(subscription);
+        assertEquals(SubscriptionStatus.DEACTIVATED, subscription.getStatus());
+        // verify call retry entry is also deleted from the database
+        CallRetry retry = callRetryDataService.findBySubscriptionId(subscription.getSubscriptionId());
+        assertEquals(0, callRetryDataService.count());
+    }
 
 }
