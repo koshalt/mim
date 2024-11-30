@@ -96,7 +96,12 @@ public class LocationServiceBundleIT extends BasePaxIT {
 
     @Before
     public void doTheNeedful() {
-        testingService.clearDatabase();
+        try{
+            testingService.clearDatabase();
+        }
+        catch (Exception e){
+            testingService.clearDatabase();
+        }
 
         TransactionStatus status = transactionManager.getTransaction(new DefaultTransactionDefinition());
 

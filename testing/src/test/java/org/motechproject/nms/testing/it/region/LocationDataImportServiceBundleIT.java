@@ -39,6 +39,9 @@ import org.ops4j.pax.exam.ExamFactory;
 import org.ops4j.pax.exam.junit.PaxExam;
 import org.ops4j.pax.exam.spi.reactors.ExamReactorStrategy;
 import org.ops4j.pax.exam.spi.reactors.PerSuite;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.supercsv.exception.SuperCsvException;
 
 import javax.inject.Inject;
@@ -62,6 +65,22 @@ import static org.motechproject.nms.testing.it.utils.RegionHelper.createTaluka;
 @ExamFactory(MotechNativeTestContainerFactory.class)
 public class LocationDataImportServiceBundleIT extends BasePaxIT {
 
+    @Inject
+    StateImportService stateImportService;
+    @Inject
+    DistrictImportService districtImportService;
+    @Inject
+    TalukaImportService talukaImportService;
+    @Inject
+    NonCensusVillageImportService nonCensusVillageImportService;
+    @Inject
+    CensusVillageImportService censusVillageImportService;
+    @Inject
+    HealthBlockImportService healthBlockImportService;
+    @Inject
+    HealthFacilityImportService healthFacilityImportService;
+    @Inject
+    HealthSubFacilityImportService healthSubFacilityImportService;
     @Inject
     TestingService testingService;
     @Inject
@@ -89,21 +108,7 @@ public class LocationDataImportServiceBundleIT extends BasePaxIT {
     @Inject
     HealthSubFacilityService healthSubFacilityService;
     @Inject
-    StateImportService stateImportService;
-    @Inject
-    DistrictImportService districtImportService;
-    @Inject
-    TalukaImportService talukaImportService;
-    @Inject
-    NonCensusVillageImportService nonCensusVillageImportService;
-    @Inject
-    CensusVillageImportService censusVillageImportService;
-    @Inject
-    HealthBlockImportService healthBlockImportService;
-    @Inject
-    HealthFacilityImportService healthFacilityImportService;
-    @Inject
-    HealthSubFacilityImportService healthSubFacilityImportService;
+    PlatformTransactionManager transactionManager;
 
     
     State exampleState;
@@ -128,7 +133,12 @@ public class LocationDataImportServiceBundleIT extends BasePaxIT {
     @Before
     public void setUp() {
 
-        testingService.clearDatabase();
+        try{
+            testingService.clearDatabase();
+        }
+        catch (Exception e){
+            testingService.clearDatabase();
+        }
 
         exampleState = stateDataService.create(new State("EXAMPLE STATE", 1L));
 

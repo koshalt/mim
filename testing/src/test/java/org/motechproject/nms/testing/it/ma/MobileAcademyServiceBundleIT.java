@@ -163,8 +163,6 @@ public class MobileAcademyServiceBundleIT extends BasePaxIT {
         } catch (IllegalStateException is) {
             assertTrue(is.toString().contains("No course bootstrapped. Check deployment"));
         }
-
-        nmsCourseDataService.create(new NmsCourse(originalCourse.getName(), originalCourse.getContent()));
     }
 
     @Test
