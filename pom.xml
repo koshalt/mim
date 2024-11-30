@@ -46,7 +46,7 @@
         <springframework.retry.version>1.1.0.RELEASE-${external.dependency.release.tag}</springframework.retry.version>-->
                 <fasterxml.jackson.version>2.8.10</fasterxml.jackson.version>
        <!--<spring.data.commons.version>1.6.4.RELEASE</spring.data.commons.version>-->
-        <thoughtworks.xstream.version>1.4.8</thoughtworks.xstream.version>
+        <thoughtworks.xstream.version>1.4.19</thoughtworks.xstream.version>
         <codehaus.jettison.version>1.2</codehaus.jettison.version>
         <gemston.gemfire.version>7.0.1</gemston.gemfire.version>
         <codehaus.groovy.version>1.8.9</codehaus.groovy.version>
