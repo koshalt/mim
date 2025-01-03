@@ -218,7 +218,7 @@ public class ImiController {
 
         LOGGER.debug("/generateTargetFile (GET)");
         try {
-                HashMap<String, TargetFileNotification> tfn = targetFileService.generateTargetFile(Boolean.parseBoolean(settingsFacade.getProperty(generateJhFile)));
+                HashMap<String, TargetFileNotification> tfn = targetFileService.generateTargetFileApi(Boolean.parseBoolean(settingsFacade.getProperty(generateJhFile)));
                 LOGGER.debug("targetFileService.generateTargetFile() done");
 
                 return tfn == null ? "null" : tfn.values().toString();

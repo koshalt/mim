@@ -76,6 +76,21 @@
   },
   {
     "active": true,
+    "pattern": "/**/generateTargetFileApi/**",
+    "supportedSchemes": [
+      "NO_SECURITY"
+    ],
+    "protocol": "HTTP",
+    "priority": 2,
+    "rest": true,
+    "origin": "SYSTEM_MODULE_IMI",
+    "version": "all",
+    "methodsRequired": [
+      "ANY"
+    ]
+  },
+  {
+    "active": true,
     "pattern": "/**/generateWhatsAppSMSTargetFile/**",
     "supportedSchemes": [
       "NO_SECURITY"

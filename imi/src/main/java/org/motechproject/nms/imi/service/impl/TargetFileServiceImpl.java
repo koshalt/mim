@@ -27,6 +27,7 @@ import org.motechproject.nms.imi.service.contract.TargetFileNotification;
 import org.motechproject.nms.imi.web.contract.FileProcessedStatusRequest;
 import org.motechproject.nms.kilkari.domain.*;
 import org.motechproject.nms.kilkari.domain.WhatsAppOptSMS;
+import org.motechproject.nms.kilkari.dto.SubscriptionDto;
 import org.motechproject.nms.kilkari.repository.WhatsAppOptSMSDataService;
 import org.motechproject.nms.kilkari.service.CallRetryService;
 import org.motechproject.nms.kilkari.service.SubscriptionService;
@@ -55,6 +56,7 @@ import java.util.*;
 @Service("targetFileService")
 public class TargetFileServiceImpl implements TargetFileService {
     private static final String LOCAL_OBD_DIR = "imi.local_obd_dir";
+    private static final String LOCAL_OBDTEST_DIR = "imi.local_obdtest_dir";
     private static final String LOCAL_WHATSAPP_SMS_OBD_DIR = "imi.local_whatsapp_sms_obd_dir";
     private static final String LOCAL_OBD_DIR_WHATSAPP = "imi.local_obd_dir_whatsapp";
     private static final String TARGET_FILE_TIME = "imi.target_file_time";
@@ -89,6 +91,8 @@ public class TargetFileServiceImpl implements TargetFileService {
     private static final String non_Jh = "NON-JH";
 
     private static final int PROGRESS_INTERVAL = 10000;
+    private static final int WEEKS_1 = 72;
+    private static final int WEEKS_2 = 48;
 
     private static final String GENERATE_TARGET_FILE_EVENT = "nms.obd.generate_target_file";
     private static final String GENERATE_WHATSAPP_SMS_TARGET_FILE_EVENT = "nms.obd.generate_whatsapp_sms_target_file";
@@ -267,6 +271,19 @@ public class TargetFileServiceImpl implements TargetFileService {
         throw new IllegalStateException("Unexpected SubscriptionOrigin value");
     }
 
+    public String serviceIdFromOrigins(boolean freshCall, String origin) {
+
+        if (origin.equalsIgnoreCase("MCTS_IMPORT") || origin.equalsIgnoreCase("RCH_IMPORT")) {
+            return freshCall ? freshCheckDND : retryCheckDND;
+        }
+
+        if (origin.equalsIgnoreCase("IVR")) {
+            return freshCall ? freshNoCheckDND : retryNoCheckDND;
+        }
+
+        throw new IllegalStateException("Unexpected SubscriptionOrigin value");
+    }
+
     public String serviceIdFromOriginJh(boolean freshCall, SubscriptionOrigin origin) {
 
         if (origin == SubscriptionOrigin.MCTS_IMPORT || origin == SubscriptionOrigin.RCH_IMPORT) {
@@ -274,6 +291,19 @@ public class TargetFileServiceImpl implements TargetFileService {
         }
 
         if (origin == SubscriptionOrigin.IVR) {
+            return freshCall ? freshNoCheckDNDJh : retryNoCheckDNDJh;
+        }
+
+        throw new IllegalStateException("Unexpected SubscriptionOrigin value");
+    }
+
+    public String serviceIdFromOriginsJh(boolean freshCall, String origin) {
+
+        if (origin.equalsIgnoreCase("MCTS_IMPORT") || origin.equalsIgnoreCase("RCH_IMPORT")) {
+            return freshCall ? freshCheckDNDJh : retryCheckDNDJh;
+        }
+
+        if (origin.equalsIgnoreCase("IVR")) {
             return freshCall ? freshNoCheckDNDJh : retryNoCheckDNDJh;
         }
 
@@ -564,8 +594,138 @@ public class TargetFileServiceImpl implements TargetFileService {
         writer.write("\n");
     }
 
-    private HashMap<String, Integer> generateFreshCalls(DateTime timestamp, int maxQueryBlock, String callFlowUrl,
+    private HashMap<String, Integer> generateFreshCallsApi(DateTime timestamp, int maxQueryBlock, String callFlowUrl,
                                                            HashMap<String, OutputStreamWriter> wr, List<String> subscriptionIdsJh, boolean split) throws IOException {
+
+        LOGGER.info("generateFreshCallsObd({})", timestamp);
+
+        int skippedrecords = 0;
+
+        DayOfTheWeek dow = DayOfTheWeek.fromDateTime(timestamp);
+        HashMap<String, Integer> recordsMap = new HashMap<>();
+        int recordsWritten = 0;
+        int recordsWrittenSpecific = 0;
+        int recordsWrittenJh = 0;
+        Long offset = 0L;
+        int weeks;
+
+        List<Long> specificStateList = getSpecificStateList();
+
+        List<SubscriptionTimeSlot> timeSlots = null;
+
+        try {
+            timeSlots = subscriptionTimeSlotService.findAllTimeSlots();
+
+        }catch (Exception e){
+            LOGGER.error("Error finding time slots for subscriptions", e);
+        }
+        if(timeSlots==null){
+            LOGGER.warn("No time slots available, proceeding without time slot data.");
+        }
+
+
+        Map<String, SubscriptionTimeSlot> timeSlotMap = new HashMap<>();
+        if(timeSlots!=null){
+            for (SubscriptionTimeSlot timeSlot : timeSlots) {
+                timeSlotMap.put(timeSlot.getSubscriptionId(), timeSlot);
+            }}
+
+
+
+    List<SubscriptionDto> subscriptions = findAllSubscriptionsForDayApi(dow, maxQueryBlock);
+
+            LOGGER.info("Subs_block_size" + subscriptions.size());
+
+
+            for (SubscriptionDto subscription : subscriptions) {
+                offset = subscription.getId();
+
+//                Subscriber subscriber = subscription.getSubscriber();
+                Long stateID = subscription.getStateId();
+
+                RequestId requestId = new RequestId(subscription.getSubscriptionId(), TIME_FORMATTER.print(timestamp));
+
+                try {
+//                    SubscriptionPack pack = subscription.getSubscriptionPack();
+                    int daysIntoPack = Days.daysBetween(new DateTime(subscription.getStartDate()), timestamp).getDays();
+//                    LOGGER.info("this is the weeks: {}",pack.getWeeks());
+                    if(subscription.getSubscriptionPackIdOid()==1){
+                        weeks =WEEKS_1;
+                    }else {
+                        weeks=WEEKS_2;
+                    }
+                    if (daysIntoPack == weeks * 7) {
+                        //
+                        // Do not add subscriptions on their last day to the fresh call list since we
+                        // will try to fetch message for current +1 week, which wouldn't exist
+                        // See https://applab.atlassian.net/browse/NMS-301
+                        //
+                        /*LOGGER.debug("Ignoring last day for subscription {} from fresh calls.",
+                                subscription.getSubscriptionId());*/
+                        skippedrecords++;
+                        continue;
+                    }
+
+                    SubscriptionPackMessage msg = subscription.nextScheduledMessage(timestamp);
+//                    LOGGER.info("this is the mesg we are getting : {}",msg);
+
+                    SubscriptionTimeSlot timeSlot = timeSlotMap.get(subscription.getSubscriptionId());
+                    String timeStamp1 = timeSlot != null ? timeSlot.getTimeStamp1() != null ? timeSlot.getTimeStamp1().toString() : "" : "";
+                    String timeStamp2 = timeSlot != null ? timeSlot.getTimeStamp2() != null ? timeSlot.getTimeStamp2().toString() : "" : "";
+                    String timeStamp3 = timeSlot != null ? timeSlot.getTimeStamp3() != null ? timeSlot.getTimeStamp3().toString() : "" : "";
+
+
+//                    LOGGER.info("this is the calling number: {}",subscriber.getCallingNumber().toString());
+
+                    if(split && subscriptionIdsJh.contains(subscription.getSubscriptionId())) {
+                            writeSubscriptionRow(
+                                    requestId.toString(),
+                                    serviceIdFromOriginsJh(true, subscription.getOrigin()),
+                                    subscription.getCallingNumber(),
+                                    HIGH_PRIORITY, //todo: how do we choose a priority?
+                                    callFlowUrl,
+                                    msg.getMessageFileName(),
+                                    msg.getWeekId(),
+                      // we are happy with empty language and circle since they are optional
+                                    subscription.getLanguageCode(),
+                                    subscription.getCircleName(),
+                                    getCode(subscription.getOrigin()),
+                                    wr.get(Jh),
+                                    subscription.isNeedsWelcomeOptInForWp(),
+                                    timeStamp1,
+                                    timeStamp2,
+                                    timeStamp3);
+                            recordsWrittenJh++;
+                        }
+                    else if(specificStateList.contains(stateID)){
+                        recordsWrittenSpecific = getRecordsWrittenApi(callFlowUrl, wr, recordsWrittenSpecific, subscription,requestId,msg,  specific_non_Jh,timeStamp1,timeStamp2,timeStamp3);
+                    }
+                    else {
+                        recordsWritten = getRecordsWrittenApi(callFlowUrl, wr, recordsWritten, subscription, requestId, msg, non_Jh,timeStamp1,timeStamp2,timeStamp3);
+
+                    }
+                } catch (IllegalStateException se) {
+                    String message = se.toString();
+                    alertService.create(subscription.getSubscriptionId(), "IllegalStateException", message,
+                            AlertType.HIGH, AlertStatus.NEW, 0, null);
+                    LOGGER.error(message,se);
+                }
+            }
+
+
+
+        LOGGER.info(WROTE+non_Jh, recordsWritten);
+        recordsMap.put(non_Jh, recordsWritten);
+        recordsMap.put(specific_non_Jh, recordsWrittenSpecific);
+        if(split){
+            LOGGER.info(WROTE+Jh, recordsWrittenJh);
+            recordsMap.put(Jh, recordsWrittenJh);
+        }
+        return recordsMap;
+    }
+
+    private HashMap<String, Integer> generateFreshCalls(DateTime timestamp, int maxQueryBlock, String callFlowUrl,
+                                                        HashMap<String, OutputStreamWriter> wr, List<String> subscriptionIdsJh, boolean split) throws IOException {
 
         LOGGER.info("generateFreshCallsObd({})", timestamp);
 
@@ -595,9 +755,9 @@ public class TargetFileServiceImpl implements TargetFileService {
             try {
                 timeSlots = subscriptionTimeSlotService.findTimeSlotsForSubscriptionsById(subscriptionIds);
 
-                }catch (Exception e){
+            }catch (Exception e){
                 LOGGER.error("Error finding time slots for subscriptions", e);
-                }
+            }
             if(timeSlots==null){
                 continue;
             }
@@ -642,25 +802,25 @@ public class TargetFileServiceImpl implements TargetFileService {
 
 
                     if(split && subscriptionIdsJh.contains(subscription.getSubscriptionId())) {
-                            writeSubscriptionRow(
-                                    requestId.toString(),
-                                    serviceIdFromOriginJh(true, subscription.getOrigin()),
-                                    subscriber.getCallingNumber().toString(),
-                                    HIGH_PRIORITY, //todo: how do we choose a priority?
-                                    callFlowUrl,
-                                    msg.getMessageFileName(),
-                                    msg.getWeekId(),
-                                    // we are happy with empty language and circle since they are optional
-                                    subscriber.getLanguage() == null ? "" : subscriber.getLanguage().getCode(),
-                                    subscriber.getCircle() == null ? "" : subscriber.getCircle().getName(),
-                                    subscription.getOrigin().getCode(),
-                                    wr.get(Jh),
-                                    subscription.isNeedsWelcomeOptInForWP(),
-                                    timeStamp1,
-                                    timeStamp2,
-                                    timeStamp3);
-                            recordsWrittenJh++;
-                        }
+                        writeSubscriptionRow(
+                                requestId.toString(),
+                                serviceIdFromOriginJh(true, subscription.getOrigin()),
+                                subscriber.getCallingNumber().toString(),
+                                HIGH_PRIORITY, //todo: how do we choose a priority?
+                                callFlowUrl,
+                                msg.getMessageFileName(),
+                                msg.getWeekId(),
+                                // we are happy with empty language and circle since they are optional
+                                subscriber.getLanguage() == null ? "" : subscriber.getLanguage().getCode(),
+                                subscriber.getCircle() == null ? "" : subscriber.getCircle().getName(),
+                                subscription.getOrigin().getCode(),
+                                wr.get(Jh),
+                                subscription.isNeedsWelcomeOptInForWP(),
+                                timeStamp1,
+                                timeStamp2,
+                                timeStamp3);
+                        recordsWrittenJh++;
+                    }
                     else if(specificStateList.contains(stateID)){
                         recordsWrittenSpecific = getRecordsWritten(callFlowUrl, wr, recordsWrittenSpecific, subscription, subscriber, requestId, msg, specific_non_Jh,timeStamp1,timeStamp2,timeStamp3);
                     }
@@ -708,6 +868,62 @@ public class TargetFileServiceImpl implements TargetFileService {
                 timeStamp3);
         recordsWrittenJh++;
         return recordsWrittenJh;
+    }
+
+    public final String getCode(String code) {
+        if (code.equalsIgnoreCase("IVR")) {
+            return "I";
+        } else if (code.equalsIgnoreCase("MCTS_IMPORT") ){
+            return "M";
+        } else {
+            return "R";
+        }
+    }
+
+
+
+    private int getRecordsWrittenApi(String callFlowUrl, HashMap<String, OutputStreamWriter> wr, int recordsWrittenJh, SubscriptionDto subscription,  RequestId requestId, SubscriptionPackMessage msg,  String specific_non_jh,String timeStamp1,String timeStamp2,String timeStamp3) throws IOException {
+        writeSubscriptionRow(
+                requestId.toString(),
+                serviceIdFromOrigins(true, subscription.getOrigin()),
+                subscription.getCallingNumber(),
+                NORMAL_PRIORITY, //todo: how do we choose a priority?
+                callFlowUrl,
+                msg.getMessageFileName(),
+                msg.getWeekId(),
+                // we are happy with empty language and circle since they are optional
+                subscription.getLanguageCode(),
+                subscription.getCircleName(),
+                getCode(subscription.getOrigin()),
+                wr.get(specific_non_jh),
+                subscription.isNeedsWelcomeOptInForWp(),
+                timeStamp1,
+                timeStamp2,
+                timeStamp3);
+        recordsWrittenJh++;
+        return recordsWrittenJh;
+    }
+
+    private List<SubscriptionDto> findAllSubscriptionsForDayApi(DayOfTheWeek dow, int batchSize) {
+        List<SubscriptionDto> allSubscriptions = new ArrayList<>();
+        long offset = 0; // Start from the first record
+        boolean hasMoreRecords = true;
+
+        while (hasMoreRecords) {
+            List<SubscriptionDto> batchSubscriptions = subscriptionService.findActiveSubscriptionsForDayApi(dow, offset, batchSize);
+
+            if (batchSubscriptions.isEmpty()) {
+                hasMoreRecords = false; // No more records to fetch
+            } else {
+                allSubscriptions.addAll(batchSubscriptions);
+                offset += batchSize; // Increment offset for the next batch
+            }
+
+            LOGGER.info("Fetched {} records so far.", allSubscriptions.size());
+        }
+
+        LOGGER.info("Total subscriptions fetched: {}", allSubscriptions.size());
+        return allSubscriptions;
     }
 
     private void writeWhatsAppHeader(OutputStreamWriter writer) throws IOException {
@@ -789,9 +1005,8 @@ public class TargetFileServiceImpl implements TargetFileService {
     }
 
 
-
     private HashMap<String, Integer> generateRetryCalls(DateTime timestamp, int maxQueryBlock, String callFlowUrl,
-                                   HashMap<String, OutputStreamWriter> wr, List<String> subscriptionIdsJh, boolean split) throws IOException {
+                                                        HashMap<String, OutputStreamWriter> wr, List<String> subscriptionIdsJh, boolean split) throws IOException {
 
         LOGGER.info("generateRetryCallsObd({})", timestamp);
         int count = 0;
@@ -1024,8 +1239,222 @@ public class TargetFileServiceImpl implements TargetFileService {
         return retryCount;
     }
 
+
+    private HashMap<String, Integer> generateRetryCallsApi(DateTime timestamp, int maxQueryBlock, String callFlowUrl,
+                                   HashMap<String, OutputStreamWriter> wr, List<String> subscriptionIdsJh, boolean split) throws IOException {
+
+        LOGGER.info("generateRetryCallsObd({})", timestamp);
+        int count = 0;
+        int countJh = 0;
+        int countSpecific = 0;
+        HashMap<String, Integer> retryCount = new HashMap<>();
+        List<Long> specificState = getSpecificStateList();
+
+        List<SubscriptionTimeSlot> timeSlots = null;
+        try {
+            timeSlots = subscriptionTimeSlotService.findAllTimeSlots();
+        } catch (Exception e) {
+            LOGGER.error("Error finding time slots for subscriptions", e);
+        }
+
+        if (timeSlots == null) {
+            LOGGER.warn("No time slots available, proceeding without time slot data.");
+        }
+
+        Map<String, SubscriptionTimeSlot> timeSlotMap = new HashMap<>();
+        if(timeSlots!=null){
+            for (SubscriptionTimeSlot timeSlot : timeSlots) {
+                timeSlotMap.put(timeSlot.getSubscriptionId(), timeSlot);
+            }}
+
+        for (String writer : wr.keySet()) {
+            if (writer.equals(specific_non_Jh)) {
+                Long offset = 0L;
+                do {
+                    List<CallRetry> callRetries = callRetryService.retrieveAllIVR(offset, maxQueryBlock, specificState);
+
+                    LOGGER.info("Call_Retries" + callRetries.size());
+
+                    if (callRetries.size() == 0) {
+                        break;
+                    }
+
+
+
+
+
+
+                    for (CallRetry callRetry : callRetries) {
+                        offset = callRetry.getId();
+                        RequestId requestId = new RequestId(callRetry.getSubscriptionId(), TIME_FORMATTER.print(timestamp));
+
+                        SubscriptionTimeSlot timeSlot = timeSlotMap.get(callRetry.getSubscriptionId());
+                        String timeStamp1 = timeSlot != null ? timeSlot.getTimeStamp1() != null ? timeSlot.getTimeStamp1().toString() : "" : "";
+                        String timeStamp2 = timeSlot != null ? timeSlot.getTimeStamp2() != null ? timeSlot.getTimeStamp2().toString() : "" : "";
+                        String timeStamp3 = timeSlot != null ? timeSlot.getTimeStamp3() != null ? timeSlot.getTimeStamp3().toString() : "" : "";
+
+                        writeSubscriptionRow(
+                                requestId.toString(),
+                                serviceIdFromOrigin(false, callRetry.getSubscriptionOrigin()),
+                                callRetry.getMsisdn().toString(),
+                                NORMAL_PRIORITY,
+                                callFlowUrl,
+                                callRetry.getContentFileName(),
+                                callRetry.getWeekId(),
+                                callRetry.getLanguageLocationCode(),
+                                callRetry.getCircle(),
+                                callRetry.getSubscriptionOrigin().getCode(),
+                                wr.get(specific_non_Jh),
+                                callRetry.isOpt_in_call_eligibility(),
+                                timeStamp1,
+                                timeStamp2,
+                                timeStamp3);
+                        countSpecific++;
+                    }
+
+                } while (true);
+            } else if(writer.equals(non_Jh)){
+                Long offset = 0L;
+                do {
+                    // All calls are rescheduled for the next day which means that we should query for all CallRetry records
+                    List<CallRetry> callRetries = callRetryService.retrieveAllNonIVR(offset, maxQueryBlock,specificState);
+                    LOGGER.info("Call_Retries" + callRetries.size());
+
+                    if (callRetries.size() == 0) {
+                        break;
+                    }
+
+
+                    for (CallRetry callRetry : callRetries) {
+                        offset = callRetry.getId();
+                        RequestId requestId = new RequestId(callRetry.getSubscriptionId(), TIME_FORMATTER.print(timestamp));
+                        SubscriptionTimeSlot timeSlot = timeSlotMap.get(callRetry.getSubscriptionId());
+                        String timeStamp1 = timeSlot != null ? timeSlot.getTimeStamp1() != null ? timeSlot.getTimeStamp1().toString() : "" : "";
+                        String timeStamp2 = timeSlot != null ? timeSlot.getTimeStamp2() != null ? timeSlot.getTimeStamp2().toString() : "" : "";
+                        String timeStamp3 = timeSlot != null ? timeSlot.getTimeStamp3() != null ? timeSlot.getTimeStamp3().toString() : "" : "";
+
+                        if (split && subscriptionIdsJh.contains(callRetry.getSubscriptionId())) {
+                            writeSubscriptionRow(
+                                    requestId.toString(),
+                                    serviceIdFromOriginJh(false, callRetry.getSubscriptionOrigin()),
+                                    callRetry.getMsisdn().toString(),
+                                    HIGH_PRIORITY,
+                                    callFlowUrl,
+                                    callRetry.getContentFileName(),
+                                    callRetry.getWeekId(),
+                                    callRetry.getLanguageLocationCode(),
+                                    callRetry.getCircle(),
+                                    callRetry.getSubscriptionOrigin().getCode(),
+                                    wr.get(Jh),
+                                    callRetry.isOpt_in_call_eligibility(),
+                                    timeStamp1,
+                                    timeStamp2,
+                                    timeStamp3);
+                            countJh++;
+                        } else {
+                            writeSubscriptionRow(
+                                    requestId.toString(),
+                                    serviceIdFromOrigin(false, callRetry.getSubscriptionOrigin()),
+                                    callRetry.getMsisdn().toString(),
+                                    NORMAL_PRIORITY,
+                                    callFlowUrl,
+                                    callRetry.getContentFileName(),
+                                    callRetry.getWeekId(),
+                                    callRetry.getLanguageLocationCode(),
+                                    callRetry.getCircle(),
+                                    callRetry.getSubscriptionOrigin().getCode(),
+                                    wr.get(non_Jh),
+                                    callRetry.isOpt_in_call_eligibility(),
+                                    timeStamp1,
+                                    timeStamp2,
+                                    timeStamp3);
+                            count++;
+                        }
+                    }
+
+                } while (true);
+            }
+        }
+       /* do {
+            // All calls are rescheduled for the next day which means that we should query for all CallRetry records
+            List<CallRetry> callRetries = callRetryService.retrieveAll(offset, maxQueryBlock);
+            LOGGER.info("Call_Retries"+callRetries.size());
+
+            if (callRetries.size() == 0) {
+                break;
+            }
+
+            for (CallRetry callRetry : callRetries) {
+                    offset = callRetry.getId();
+                    RequestId requestId = new RequestId(callRetry.getSubscriptionId(), TIME_FORMATTER.print(timestamp));
+                    Subscriber subscriber = subscriptionService.getSubscription(callRetry.getSubscriptionId()).getSubscriber();
+                    Long stateCode = subscriber.getMother() == null ? subscriber.getChild().getState().getCode() : subscriber.getMother().getState().getCode();
+                    if(split && subscriptionIdsJh.contains(callRetry.getSubscriptionId())) {
+                        writeSubscriptionRow(
+                                requestId.toString(),
+                                serviceIdFromOriginJh(false, callRetry.getSubscriptionOrigin()),
+                                callRetry.getMsisdn().toString(),
+                                HIGH_PRIORITY,
+                                callFlowUrl,
+                                callRetry.getContentFileName(),
+                                callRetry.getWeekId(),
+                                callRetry.getLanguageLocationCode(),
+                                callRetry.getCircle(),
+                                callRetry.getSubscriptionOrigin().getCode(),
+                                wr.get(Jh));
+                        countJh++;
+                    }
+                    else if(specificState.contains(stateCode)){
+                        writeSubscriptionRow(
+                                requestId.toString(),
+                                serviceIdFromOrigin(false, callRetry.getSubscriptionOrigin()),
+                                callRetry.getMsisdn().toString(),
+                                NORMAL_PRIORITY,
+                                callFlowUrl,
+                                callRetry.getContentFileName(),
+                                callRetry.getWeekId(),
+                                callRetry.getLanguageLocationCode(),
+                                callRetry.getCircle(),
+                                callRetry.getSubscriptionOrigin().getCode(),
+                                wr.get(specific_non_Jh));
+                        countSpecific++;
+                    }
+                    else {
+                        writeSubscriptionRow(
+                                requestId.toString(),
+                                serviceIdFromOrigin(false, callRetry.getSubscriptionOrigin()),
+                                callRetry.getMsisdn().toString(),
+                                NORMAL_PRIORITY,
+                                callFlowUrl,
+                                callRetry.getContentFileName(),
+                                callRetry.getWeekId(),
+                                callRetry.getLanguageLocationCode(),
+                                callRetry.getCircle(),
+                                callRetry.getSubscriptionOrigin().getCode(),
+                                wr.get(non_Jh));
+                        count++;
+                    }
+                }
+
+        } while (true);*/
+
+        LOGGER.info(WROTE+non_Jh+"Retry", count);
+        retryCount.put(non_Jh, count);
+        retryCount.put(specific_non_Jh, countSpecific);
+        if(split) {
+            LOGGER.info(WROTE+Jh+"Retry", countJh);
+            retryCount.put(Jh, countJh);
+        }
+
+        return retryCount;
+    }
+
     private File localObdDir() {
         return new File(settingsFacade.getProperty(LOCAL_OBD_DIR));
+    }
+
+    private File localObdTestDir() {
+        return new File(settingsFacade.getProperty(LOCAL_OBDTEST_DIR));
     }
 
     private List<Long> getSpecificStateList(){
@@ -1179,6 +1608,141 @@ public class TargetFileServiceImpl implements TargetFileService {
         }
         return tfn;
     }
+
+
+    @Transactional
+    public HashMap<String, TargetFileNotification> generateTargetFileApi(boolean split) {
+        LOGGER.info("generateTargetFile()"+split);
+        DateTime today = DateTime.now();
+        String targetFileName = targetFileName(TIME_FORMATTER.print(today));
+        String targetFileNameHungama = targetFileName(TIME_FORMATTER.print(today)+"IVR");
+        File localTargetDir = localObdTestDir();
+        String checksum;
+        String checksumHungama;
+        File targetFile = new File(localTargetDir, targetFileName);
+        File targetFileHungama = new File(localTargetDir, targetFileNameHungama);
+
+        HashMap<String, Integer> recordCount;
+        HashMap<String, Integer> recordCountRetry;
+
+        int maxQueryBlock = Integer.parseInt(settingsFacade.getProperty(MAX_QUERY_BLOCK));
+        String callFlowUrl = settingsFacade.getProperty(TARGET_FILE_CALL_FLOW_URL);
+
+        if (callFlowUrl == null) {
+            //it's ok to have an empty call flow url - the spec says the default call flow will be used
+            //whatever that is...
+            callFlowUrl = "";
+        }
+        HashMap<String, OutputStreamWriter> wr = new HashMap<>();
+        HashMap<String, TargetFileNotification> tfn = new HashMap<>();
+        if(split){
+            String targetFileNameJh = targetFileName(TIME_FORMATTER.print(today)+"JH");
+            File localTargetDirJh = localObdTestDir();
+            String checksumJh;
+            File targetFileJh = new File(localTargetDirJh, targetFileNameJh);
+
+            try {
+                FileOutputStream fos = new FileOutputStream(targetFile);
+                OutputStreamWriter writer = new OutputStreamWriter(fos);
+
+                FileOutputStream fosH = new FileOutputStream(targetFileHungama);
+                OutputStreamWriter writerH = new OutputStreamWriter(fosH);
+
+                FileOutputStream fosJh = new FileOutputStream(targetFileJh);
+                OutputStreamWriter writerJh = new OutputStreamWriter(fosJh);
+
+                //Header
+                writeHeader(writer);
+                writeHeader(writerH);
+                writeHeader(writerJh);
+
+                List<String> subscriptionIdsJh = subscriptionService.findJhSubscriptionIds();
+                LOGGER.info("JH-Subscriptions-Number"+subscriptionIdsJh.size());
+
+
+                wr.put(Jh, writerJh);
+                wr.put(non_Jh, writer);
+                wr.put(specific_non_Jh, writerH);
+
+                //Fresh calls
+                recordCount = generateFreshCallsApi(today, maxQueryBlock, callFlowUrl, wr, subscriptionIdsJh, true);
+
+                //Retry calls
+                recordCountRetry = generateRetryCallsApi(today, maxQueryBlock, callFlowUrl, wr, subscriptionIdsJh, true);
+
+                writer.close();
+                fos.close();
+
+                writerH.close();
+                fosH.close();
+
+                writerJh.close();
+                fosJh.close();
+
+                checksum = ChecksumHelper.checksum(targetFile);
+                checksumJh = ChecksumHelper.checksum(targetFileJh);
+                checksumHungama = ChecksumHelper.checksum(targetFileHungama);
+                tfn.put(Jh, new TargetFileNotification(targetFileNameJh, checksumJh, recordCount.get(Jh)+recordCountRetry.get(Jh)));
+
+            } catch (IOException e) {
+                LOGGER.error(e.getMessage(),e);
+                alert(targetFile.toString(), "targetFile", e.getMessage());
+                fileAuditRecordDataService.create(new FileAuditRecord(FileType.TARGET_FILE, targetFile.getName(),
+                        false, e.getMessage(), null, null));
+                return null;
+            }
+        }
+        else{
+            try {
+                FileOutputStream fos = new FileOutputStream(targetFile);
+                OutputStreamWriter writer = new OutputStreamWriter(fos);
+
+                FileOutputStream fosH = new FileOutputStream(targetFileHungama);
+                OutputStreamWriter writerH = new OutputStreamWriter(fosH);
+
+                //Header
+                writeHeader(writer);
+                writeHeader(writerH);
+
+                wr.put(non_Jh, writer);
+                wr.put(specific_non_Jh,writerH);
+
+                //Fresh calls
+                recordCount = generateFreshCallsApi(today, maxQueryBlock, callFlowUrl, wr, Collections.emptyList(), false);
+
+                //Retry calls
+                recordCountRetry = generateRetryCallsApi(today, maxQueryBlock, callFlowUrl, wr, Collections.emptyList(), false);
+
+                writer.close();
+                writerH.close();
+
+                fos.close();
+                fosH.close();
+
+                checksum = ChecksumHelper.checksum(targetFile);
+                checksumHungama = ChecksumHelper.checksum(targetFileHungama);
+
+            } catch (IOException e) {
+                LOGGER.error(e.getMessage(),e);
+                alert(targetFile.toString(), "targetFile", e.getMessage());
+                fileAuditRecordDataService.create(new FileAuditRecord(FileType.TARGET_FILE, targetFile.getName(),
+                        false, e.getMessage(), null, null));
+                return null;
+            }
+        }
+
+        tfn.put(non_Jh, new TargetFileNotification(targetFileName, checksum, recordCount.get(non_Jh)+recordCountRetry.get(non_Jh)));
+        tfn.put(specific_non_Jh, new TargetFileNotification(targetFileNameHungama,checksumHungama, recordCount.get(specific_non_Jh)+recordCountRetry.get(specific_non_Jh)));
+        LOGGER.debug("TargetFileNotification = {}", tfn.toString());
+
+        //audit the success
+        for(TargetFileNotification t: tfn.values()) {
+            fileAuditRecordDataService.create(new FileAuditRecord(FileType.TARGET_FILE, t.getFileName(), true,
+                    null, t.getRecordsCount(), t.getChecksum()));
+        }
+        return tfn;
+    }
+
     @Transactional
     public HashMap<String, TargetFileNotification> generateWhatsAppSMSTargetFile() {
         DateTime today = DateTime.now();

@@ -16,6 +16,7 @@ public interface TargetFileService {
      */
     HashMap<String, TargetFileNotification> generateTargetFile(boolean split);
 
+    HashMap<String, TargetFileNotification> generateTargetFileApi(boolean split);
 
     TargetFileNotification generateTargetFileWhatsApp();
 

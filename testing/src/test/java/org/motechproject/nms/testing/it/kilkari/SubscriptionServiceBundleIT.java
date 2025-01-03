@@ -12,6 +12,7 @@ import org.motechproject.commons.date.util.DateUtil;
 import org.motechproject.event.MotechEvent;
 import org.motechproject.mds.ex.JdoListenerInvocationException;
 import org.motechproject.nms.kilkari.domain.*;
+import org.motechproject.nms.kilkari.dto.SubscriptionDto;
 import org.motechproject.nms.kilkari.repository.CallRetryDataService;
 import org.motechproject.nms.kilkari.repository.InboxCallDataDataService;
 import org.motechproject.nms.kilkari.repository.InboxCallDetailRecordDataService;
@@ -763,10 +764,10 @@ public class SubscriptionServiceBundleIT extends BasePaxIT {
         subscription.setStartDate(startDate);
         subscriptionDataService.create(subscription);
 
-        List<Subscription> subscriptions = subscriptionService.findActiveSubscriptionsForDay(startDay, 0, 10);
+        List<SubscriptionDto> subscriptions = subscriptionService.findActiveSubscriptionsForDay(startDay, 0, 10);
         assertTrue(subscriptions.size() > 0);
-        for (Subscription s : subscriptions) {
-            if (s.getSubscriber().getCallingNumber() == 1111111111L) {
+        for (SubscriptionDto s : subscriptions) {
+            if (Long.parseLong(s.getCallingNumber()) == 1111111111L) {
                 return;
             }
         }

@@ -16,6 +16,7 @@ import org.motechproject.mds.query.SqlQueryExecution;
 import org.motechproject.mds.util.InstanceSecurityRestriction;
 import org.motechproject.metrics.service.Timer;
 import org.motechproject.nms.kilkari.domain.*;
+import org.motechproject.nms.kilkari.dto.SubscriptionDto;
 import org.motechproject.nms.kilkari.repository.*;
 import org.motechproject.nms.kilkari.service.CsrVerifierService;
 import org.motechproject.nms.kilkari.service.SubscriptionService;
@@ -36,7 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.PostConstruct;
 import javax.jdo.Query;
 import javax.validation.ConstraintViolationException;
+import java.sql.*;
 import java.util.*;
+import java.util.Date;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -61,6 +64,10 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     private SubscriberMsisdnTrackerDataService subscriberMsisdnTrackerDataService;
     public static AtomicBoolean isCapacityAvailable = new AtomicBoolean(true);
     private static final String HIGH_PRIORITY_BLOCK = "kilkari.highPriority.blockId";
+    public static final String DB_URL_JDBC = "db.url";
+    public static final String DB_USER_JDBC = "db.user";
+    public static final String DB_PASSWORD_JDBC = "db.password";
+
 
 
     @Autowired
@@ -987,6 +994,26 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         return subscriptionDataService.create(subscription);
     }
 
+
+//    @Override
+//    public List<Subscription> findActiveSubscriptionsForDayUsingJdo(DayOfTheWeek dow, long offset, int rowCount) {
+//        try {
+//            Query query = persistenceManager.newQuery(Subscription.class);
+//            query.setFilter("firstMessageDayOfWeek == :dow && status == :status && serviceStatus == :ivr || serviceStatus == :ivrAndWhatsApp");
+//            query.setOrdering("id ascending");
+//
+//
+//            return (List<Subscription>) query.executeWithArray(
+//                    dow.toString(),
+//                    SubscriptionStatus.ACTIVE,
+//                    "IVR",
+//                    "IVR_AND_WHATSAPP"
+//            );
+//        } finally {
+//            persistenceManager.close();
+//        }
+//    }
+
     @Override
     public List<Subscription> findActiveSubscriptionsForDay(final DayOfTheWeek dow, final long offset,
                                                             final int rowCount) {
@@ -1032,6 +1059,105 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         List<Subscription> subscriptions = subscriptionDataService.executeSQLQuery(queryExecution);
         LOGGER.debug("findActiveSubscriptionsForDay(dow={}, offset={}, rowCount={}) {}", dow, offset, rowCount, queryTimer.time());
         return subscriptions;
+    }
+
+
+
+
+   @Override
+   public List<SubscriptionDto> findActiveSubscriptionsForDayApi(DayOfTheWeek dow, long offset, int rowCount) {
+       List<SubscriptionDto> subscriptions = new ArrayList<>();
+       String query = "SELECT s.id as id, activationDate, deactivationReason, endDate, firstMessageDayOfWeek, " +
+                                "s.needsWelcomeMessageViaObd, s.origin, s.secondMessageDayOfWeek, s.startDate, " +
+                                "s.status, s.subscriber_id_OID, s.subscriptionId, s.subscriptionPack_id_OID, " +
+                                "s.creationDate, s.creator, s.modificationDate, s.modifiedBy, s.owner, s.needsWelcomeOptInForWP,sub.callingNumber, " +
+                                "COALESCE(lang.code, '') AS languageCode," +
+                                "COALESCE(circ.name, '') AS circleName," +
+                                "COALESCE(statemother.id, statechild.id) AS stateID " +
+                                "FROM nms_subscriptions s " +
+               "INNER JOIN nms_subscribers AS sub ON s.subscriber_id_OID = sub.id " +
+               "LEFT JOIN nms_mcts_mothers AS mother ON sub.mother_id_OID = mother.id " +
+               "LEFT JOIN nms_states  AS statemother ON mother.state_id_OID = statemother.id " +
+               "LEFT JOIN nms_mcts_children AS child ON sub.child_id_OID = child.id " +
+               "LEFT JOIN nms_states AS statechild ON child.state_id_OID = statechild.id " +
+               "LEFT JOIN nms_languages AS lang ON sub.language_id_OID = lang.id " +
+               "LEFT JOIN nms_circles AS circ ON sub.circle_id_OID = circ.id " +
+               "WHERE s.firstMessageDayOfWeek = ? AND s.status = 'ACTIVE' " +
+               "AND serviceStatus IN ('IVR', 'IVR_AND_WHATSAPP') " +
+               "ORDER BY s.id LIMIT ? OFFSET ? ";
+
+       LOGGER.debug("Executing query: {}", query);
+
+      // ResultSet resultSet = null;
+       PreparedStatement stmt = null;
+       Connection connection =null;
+
+       try{ connection = DriverManager.getConnection(settingsFacade.getProperty(DB_URL_JDBC), settingsFacade.getProperty(DB_USER_JDBC), settingsFacade.getProperty(DB_PASSWORD_JDBC));
+             stmt = connection.prepareStatement(query) ;
+
+           stmt.setString(1, String.valueOf(dow));
+           stmt.setInt(2, rowCount);
+           stmt.setLong(3, offset);
+
+           try (ResultSet resultSet = stmt.executeQuery()) {
+               while (resultSet.next()) {
+                   SubscriptionDto subscriptionDto = populateSubscription(resultSet);
+                   subscriptions.add(subscriptionDto);
+               }
+           }
+
+
+       } catch (Exception e) {
+           LOGGER.error("Error executing query: {}", query, e);
+       }finally {
+           try {
+               if (stmt != null) {
+                   stmt.close();
+               }
+               if (connection != null) {
+                   connection.close();
+               }
+           } catch (Exception e) {
+               LOGGER.error("Error closing the connection with the database...");
+               e.printStackTrace();
+           }
+       }
+
+       return subscriptions;
+   }
+
+    /**
+     * Maps a ResultSet row to a Subscription object using the constructor.
+     */
+    private SubscriptionDto populateSubscription( ResultSet resultSet) throws Exception {
+
+        long id = resultSet.getLong("id");
+            return new SubscriptionDto.Builder()
+                    .setId(id)
+                    .setActivationDate(resultSet.getDate("activationDate"))
+                    .setDeactivationReason(resultSet.getString("deactivationReason"))
+                    .setEndDate(resultSet.getDate("endDate"))
+                    .setFirstMessageDayOfWeek(resultSet.getString("firstMessageDayOfWeek"))
+                    .setNeedsWelcomeMessageViaObd(resultSet.getBoolean("needsWelcomeMessageViaObd"))
+                    .setOrigin(resultSet.getString("origin"))
+                    .setSecondMessageDayOfWeek(resultSet.getString("secondMessageDayOfWeek"))
+                    .setStartDate(resultSet.getDate("startDate"))
+                    .setStatus(resultSet.getString("status"))
+                    .setSubscriberIdOid(resultSet.getLong("subscriber_id_OID"))
+                    .setSubscriptionId(resultSet.getString("subscriptionId"))
+                    .setSubscriptionPackIdOid(resultSet.getLong("subscriptionPack_id_OID"))
+                    .setCreationDate(resultSet.getDate("creationDate"))
+                    .setCreator(resultSet.getString("creator"))
+                    .setModificationDate(resultSet.getDate("modificationDate"))
+                    .setModifiedBy(resultSet.getString("modifiedBy"))
+                    .setOwner(resultSet.getString("owner"))
+                    .setNeedsWelcomeOptInForWp(resultSet.getBoolean("needsWelcomeOptInForWP"))
+                    .setCallingNumber(resultSet.getString("callingNumber"))
+                    .setLanguageCode(resultSet.getString("languageCode"))
+                    .setCircleName(resultSet.getString("circleName"))
+                    .setStateId(resultSet.getLong("stateID"))
+                    .build();
+
     }
 
 

@@ -8,4 +8,6 @@ public interface SubscriptionTimeSlotService {
 
     List<SubscriptionTimeSlot> findTimeSlotsForSubscriptionsById(List<String> subscriptionId);
 
+     List<SubscriptionTimeSlot> findAllTimeSlots();
+
 }
