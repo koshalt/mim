@@ -37,6 +37,8 @@ public class CallSummaryRecordDto implements Serializable {
 
     private String opt_in_input;
 
+    private String serviceId;
+
     public CallSummaryRecordDto() { }
 
     //CHECKSTYLE:OFF
@@ -53,7 +55,7 @@ public class CallSummaryRecordDto implements Serializable {
     }
 
     public CallSummaryRecordDto(String subscriptionId, int statusCode, int finalStatus, String contentFileName,
-                                String weekId, String languageCode, String circleName, String targetFileTimeStamp, Boolean opt_in_call_eligibility, String opt_in_input) {
+                                String weekId, String languageCode, String circleName, String targetFileTimeStamp, Boolean opt_in_call_eligibility, String opt_in_input,String serviceId) {
         this.subscriptionId = subscriptionId;
         this.statusCode = statusCode;
         this.finalStatus = finalStatus;
@@ -64,6 +66,7 @@ public class CallSummaryRecordDto implements Serializable {
         this.targetFileTimeStamp = targetFileTimeStamp;
         this.opt_in_call_eligibility = opt_in_call_eligibility;
         this.opt_in_input = opt_in_input;
+        this.serviceId = serviceId;
     }
 
     // Helper constructor for ITs
@@ -155,6 +158,14 @@ public class CallSummaryRecordDto implements Serializable {
         this.targetFileTimeStamp = targetFileTimeStamp;
     }
 
+    public String getServiceId() {
+        return serviceId;
+    }
+
+    public void setServiceId(String serviceId) {
+        this.serviceId = serviceId;
+    }
+
     @Ignore
     public static CallSummaryRecordDto fromParams(Map<String, Object> params) {
         CallSummaryRecordDto csr;
@@ -168,7 +179,8 @@ public class CallSummaryRecordDto implements Serializable {
                 (String) params.get("circleName"),
                 (String) params.get("targetFileTimeStamp"),
                 (Boolean) params.get("opt_in_call_eligibility"),
-                (String) params.get("opt_in_input")
+                (String) params.get("opt_in_input"),
+                (String) params.get("serviceId")
         );
         return csr;
     }
@@ -186,6 +198,7 @@ public class CallSummaryRecordDto implements Serializable {
         params.put("targetFileTimeStamp", csr.targetFileTimeStamp);
         params.put("opt_in_call_eligibility", csr.opt_in_call_eligibility);
         params.put("opt_in_input", csr.opt_in_input);
+        params.put("serviceId", csr.serviceId);
         return params;
     }
 }

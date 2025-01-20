@@ -24,9 +24,11 @@ import org.motechproject.nms.kilkari.service.CsrService;
 import org.motechproject.nms.kilkari.service.CsrVerifierService;
 import org.motechproject.nms.kilkari.service.SubscriptionService;
 import org.motechproject.nms.kilkari.utils.KilkariConstants;
+import org.motechproject.nms.props.domain.DayOfTheWeek;
 import org.motechproject.nms.props.domain.FinalCallStatus;
 import org.motechproject.nms.props.domain.StatusCode;
 import org.motechproject.nms.props.domain.WhatsAppOptInStatusCode;
+import org.motechproject.server.config.SettingsFacade;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -145,8 +147,10 @@ public class CsrServiceImpl implements CsrService {
      private void doReschedule(Subscription subscription, CallRetry existingCallRetry, CallSummaryRecordDto csrDto) {
 
         boolean invalidNr = StatusCode.fromInt(csrDto.getStatusCode()).equals(StatusCode.OBD_FAILED_INVALIDNUMBER);
-
+LOGGER.info("inside doreshedule method");
+LOGGER.info("this is the data inside: {},{},{]",subscription,existingCallRetry, csrDto);
         if (existingCallRetry == null && SubscriptionStatus.ACTIVE.equals(subscription.getStatus())) {
+            LOGGER.info("inside condition 1");
             // We've never retried this call, let's do it
             callRetryDataService.create(new CallRetry(
                     subscription.getSubscriptionId(),
@@ -167,13 +171,14 @@ public class CsrServiceImpl implements CsrService {
 
         if ((subscription.getSubscriptionPack().retryCount() == 1) ||
                 (existingCallRetry !=null && existingCallRetry.getCallStage() == CallStage.RETRY_LAST)) {
-
+            LOGGER.info("inside condition 2");
             // This call should not be retried
 
             // Deactivate subscription for persistent invalid numbers
             // See https://github.com/motech-implementations/mim/issues/169
             if (existingCallRetry != null && existingCallRetry.getInvalidNumberCount() != null &&
                     existingCallRetry.getInvalidNumberCount() == subscription.getSubscriptionPack().retryCount()) {
+                LOGGER.info("inside condition 3");
                 subscription.setStatus(SubscriptionStatus.DEACTIVATED);
                 subscription.setDeactivationReason(DeactivationReason.INVALID_NUMBER);
                 subscriptionDataService.update(subscription);
@@ -181,8 +186,10 @@ public class CsrServiceImpl implements CsrService {
             }
             if (existingCallRetry != null && existingCallRetry.isOpt_in_call_eligibility()
                     && existingCallRetry.getCallStage() == CallStage.RETRY_LAST && existingCallRetry.getWeekId().equals("w1_1")) {
+                LOGGER.info("inside condition 4");
                 boolean optInCall = existingCallRetry.getContentFileName().equals("opt_in.wav");
                 if(!optInCall) {
+                    LOGGER.info("inside condition 5");
                     /*callRetryDataService.delete(existingCallRetry);
                     callRetryDataService.create(new CallRetry(
                                     subscription.getSubscriptionId(),
@@ -201,6 +208,7 @@ public class CsrServiceImpl implements CsrService {
                     existingCallRetry.setContentFileName("opt_in.wav");
                     callRetryDataService.update(existingCallRetry);
                 } else {
+                    LOGGER.info("inside condition 6");
                     completeSubscriptionIfNeeded(subscription, csrDto.getContentFileName());
                     callRetryDataService.delete(existingCallRetry);
                     LOGGER.info("subscription is : {}", subscription);
@@ -222,6 +230,7 @@ public class CsrServiceImpl implements CsrService {
                 return;
             }
             if (existingCallRetry != null) {
+                LOGGER.info("inside condition 7");
                 callRetryDataService.delete(existingCallRetry);
             }
 
@@ -234,6 +243,7 @@ public class CsrServiceImpl implements CsrService {
 
         // This call should indeed be re-rescheduled
         if (existingCallRetry != null) {
+            LOGGER.info("inside condition 8");
             existingCallRetry.setCallStage(existingCallRetry.getCallStage().nextStage());
             existingCallRetry.setInvalidNumberCount(existingCallRetry.getInvalidNumberCount() == null ? 0 :
                     (existingCallRetry.getInvalidNumberCount() + (invalidNr ? 1 : 0)));
@@ -290,13 +300,16 @@ public class CsrServiceImpl implements CsrService {
     @Transactional
     public void processCallSummaryRecord(MotechEvent event) { //NOPMD NcssMethodCount
 
+        LOGGER.info("inside process call summary record");
         Timer timer = new Timer();
         String whatHappened = "##";
 
         String subscriptionId = "###INVALID###";
         try {
             CallSummaryRecordDto csrDto = CallSummaryRecordDto.fromParams(event.getParameters());
+            LOGGER.info("this is csr dto : {}",csrDto);
             subscriptionId = csrDto.getSubscriptionId();
+            LOGGER.info("this is the subscriptionId: {}",subscriptionId);
             csrVerifierService.verify(csrDto);
 
             Subscription subscription = subscriptionDataService.findBySubscriptionId(subscriptionId);
@@ -305,10 +318,13 @@ public class CsrServiceImpl implements CsrService {
             }
 
             CallRetry callRetry = callRetryDataService.findBySubscriptionId(subscriptionId);
+            LOGGER.info("this is call retry: {}",callRetry);
+            LOGGER.info("this is the final status: {}",FinalCallStatus.fromInt(csrDto.getFinalStatus()));
             switch (FinalCallStatus.fromInt(csrDto.getFinalStatus())) {
                 case SUCCESS:
                     completeSubscriptionIfNeeded(subscription, csrDto.getContentFileName());
                     if (callRetry != null) {
+
                         if (!callRetry.getContentFileName().equals("opt_in.wav")) {
                             callRetryDataService.delete(callRetry);
                         }
@@ -325,13 +341,31 @@ public class CsrServiceImpl implements CsrService {
                     //If there was a DOB/LMP update during RCH import, number of weeks into subscription would have changed.
                     //No need to reschedule this call. Exception for w1, because regardless of which week the subscription starts in, user
                     //always gets w1 message initially
+                    LOGGER.info("this is the data: {},{}",csrDto.getWeekId(),weekId);
+
+
+
+
+                    LOGGER.info("this is data in db for week: {}",subscription.getFirstMessageDayOfWeek());
+                    LOGGER.info("this is data in csrdto: {}",DayOfTheWeek.getDayOfTheWeekFromTimestamp(csrDto.getTargetFileTimeStamp()));
+                    LOGGER.info("this is the condition1: {}",!subscription.getFirstMessageDayOfWeek().equals(DayOfTheWeek.getDayOfTheWeekFromTimestamp(csrDto.getTargetFileTimeStamp())));
+                    LOGGER.info("this is condition 2: {}", "1".equals(extractRouteNumber(csrDto.getServiceId())));
+                    LOGGER.info("this is condition 2  and return : {}",extractRouteNumber(csrDto.getServiceId()));
+                    LOGGER.info("this is service id: {}",csrDto.getServiceId());
                     if(!csrDto.getWeekId().equals("w1_1")&&!weekId.equals(csrDto.getWeekId())){
                         if(callRetry!=null){
+                            LOGGER.info("inside call retry condition");
                             callRetryDataService.delete(callRetry);
                         }
-                    } else {
+                    }else if(callRetry == null && !subscription.getFirstMessageDayOfWeek().equals(DayOfTheWeek.getDayOfTheWeekFromTimestamp(csrDto.getTargetFileTimeStamp())) && "1".equals(extractRouteNumber(csrDto.getServiceId()))) {
+                        LOGGER.info("inside fresh call condition after rch update");
+                    }else if(callRetry == null && "2".equals(extractRouteNumber(csrDto.getServiceId()))){
+                        LOGGER.info("inside retry call condition after rch update");
+                    }else {
+                        LOGGER.info("this is the data2: {}",csrDto.getTargetFileTimeStamp());
                         if (callRetry == null ||
-                                !csrDto.getTargetFileTimeStamp().equals(callRetry.getTargetFiletimestamp())) {
+                                !csrDto.getTargetFileTimeStamp().equals(callRetry.getTargetFiletimestamp())){
+                            LOGGER.info("inside fresh or retryupdate else condition");
                             doReschedule(subscription, callRetry, csrDto);
                         }
                     }
@@ -339,11 +373,13 @@ public class CsrServiceImpl implements CsrService {
                     break;
 
                 case REJECTED:
+                    LOGGER.info("inside rejected");
                     handleDndForSubscription(subscription);
                     whatHappened = "RE";
                     break;
 
                 default:
+                    LOGGER.info("inside default");
                     String error = String.format("Invalid FinalCallStatus: %s", csrDto.getFinalStatus());
                     LOGGER.error(error);
                     alertService.create(subscriptionId, KilkariConstants.NMS_IMI_KK_PROCESS_CSR_SUBJECT, error, AlertType.CRITICAL,
@@ -370,6 +406,18 @@ public class CsrServiceImpl implements CsrService {
         }
 
         LOGGER.debug(String.format("processCallSummaryRecord %s %s %s", subscriptionId, whatHappened, timer.time()));
+    }
+
+    private String extractRouteNumber(String serviceId) {
+        if (serviceId != null && serviceId.contains("Retryonroute")) {
+            LOGGER.info("inside this1");
+            int startIndex = serviceId.indexOf("Retryonroute") + "Retryonroute".length();
+            if (startIndex < serviceId.length()) {
+                LOGGER.info("inside this2");
+                return String.valueOf(serviceId.charAt(startIndex));
+            }
+        }
+        return "";
     }
 
     @MotechListener(subjects = {KilkariConstants.NMS_IMI_KK_WHATSAPP_SMS_PROCESS_CSR_SUBJECT}) //NO CHECKSTYLE Cyclomatic Complexity

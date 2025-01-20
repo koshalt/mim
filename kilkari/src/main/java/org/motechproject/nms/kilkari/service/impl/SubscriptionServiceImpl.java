@@ -945,6 +945,15 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     }
 
     @Override
+    public void updateCallRetry(String subscriptionId,Long msisdn) {
+        CallRetry callRetry = callRetryDataService.findBySubscriptionId(subscriptionId);
+        if (callRetry != null) {
+            callRetry.setMsisdn(msisdn);
+            callRetryDataService.update(callRetry);
+        }
+    }
+
+    @Override
     public void deactivateSubscription(Subscription subscription, DeactivationReason reason) {
         if (subscription != null && (subscription.getStatus() == SubscriptionStatus.ACTIVE ||
                 subscription.getStatus() == SubscriptionStatus.PENDING_ACTIVATION || subscription.getStatus() == SubscriptionStatus.HOLD)) {

@@ -106,6 +106,8 @@ public interface SubscriptionService {
 
     void deleteCallRetry(String subscriptionId);
 
+    void updateCallRetry(String subscriptionId,Long msisdn);
+
     void deleteBlockedMsisdn(Long motherId, Long oldCallingNumber, Long newCallingNumber);
 
     /**

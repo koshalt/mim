@@ -203,7 +203,8 @@ public class CallSummaryRecord {
                 circle,
                 timestamp,
                 opt_in_call_eligibility,
-                opt_in_input
+                opt_in_input,
+                serviceId
         );
     }
 }

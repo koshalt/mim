@@ -1,6 +1,8 @@
 package org.motechproject.nms.props.domain;
 
 import org.joda.time.DateTime;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
 
 public enum DayOfTheWeek {
     MONDAY(1),
@@ -36,6 +38,16 @@ public enum DayOfTheWeek {
 
     public static DayOfTheWeek fromDateTime(DateTime dt) {
         return fromInt(dt.getDayOfWeek());
+    }
+
+    public static DayOfTheWeek getDayOfTheWeekFromTimestamp(String timestamp) {
+        DateTimeFormatter formatter = DateTimeFormat.forPattern("yyyyMMddHHmmss");
+
+        DateTime dateTime = formatter.parseDateTime(timestamp);
+
+        int dayOfWeek = dateTime.getDayOfWeek(); // 1 = Monday, 7 = Sunday
+
+        return DayOfTheWeek.fromInt(dayOfWeek);
     }
 
     public DayOfTheWeek nextDay() {
